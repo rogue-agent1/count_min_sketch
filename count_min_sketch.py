@@ -1,28 +1,51 @@
 #!/usr/bin/env python3
-"""Count-Min Sketch — probabilistic frequency estimation."""
-import sys, hashlib, random
+"""count_min_sketch — Probabilistic frequency estimation. Zero deps."""
+import hashlib, math
 
 class CountMinSketch:
     def __init__(self, width=1000, depth=5):
-        self.w = width; self.d = depth
+        self.width, self.depth = width, depth
         self.table = [[0]*width for _ in range(depth)]
-        self.seeds = [random.randint(0, 2**32) for _ in range(depth)]
-    def _hash(self, item, i):
-        h = hashlib.md5(f"{self.seeds[i]}:{item}".encode()).hexdigest()
-        return int(h, 16) % self.w
+        self.total = 0
+
+    def _hashes(self, item):
+        for i in range(self.depth):
+            h = int(hashlib.md5(f"{i}:{item}".encode()).hexdigest(), 16)
+            yield i, h % self.width
+
     def add(self, item, count=1):
-        for i in range(self.d):
-            self.table[i][self._hash(item, i)] += count
+        self.total += count
+        for row, col in self._hashes(item):
+            self.table[row][col] += count
+
     def estimate(self, item):
-        return min(self.table[i][self._hash(item, i)] for i in range(self.d))
+        return min(self.table[row][col] for row, col in self._hashes(item))
+
+    def merge(self, other):
+        r = CountMinSketch(self.width, self.depth)
+        for i in range(self.depth):
+            for j in range(self.width):
+                r.table[i][j] = self.table[i][j] + other.table[i][j]
+        r.total = self.total + other.total
+        return r
+
+def main():
+    import random; random.seed(42)
+    cms = CountMinSketch(width=500, depth=5)
+    # Zipf-like distribution
+    freqs = {}
+    for _ in range(100000):
+        item = f"item_{random.randint(0, 999)}"
+        cms.add(item)
+        freqs[item] = freqs.get(item, 0) + 1
+    print("Count-Min Sketch (w=500, d=5, 100K inserts):\n")
+    top = sorted(freqs.items(), key=lambda x: -x[1])[:10]
+    print(f"  {'Item':<12} {'Actual':>8} {'Estimate':>10} {'Error':>8}")
+    for item, actual in top:
+        est = cms.estimate(item)
+        print(f"  {item:<12} {actual:>8} {est:>10} {est-actual:>+8}")
+    mem = cms.width * cms.depth * 8
+    print(f"\n  Memory: {mem//1024}KB, Total items: {cms.total}")
 
 if __name__ == "__main__":
-    cms = CountMinSketch(width=100, depth=5)
-    words = "the quick brown fox the fox the the dog cat the fox brown".split()
-    for w in words: cms.add(w)
-    print(f"Count-Min Sketch ({len(words)} items):")
-    actual = {}
-    for w in words: actual[w] = actual.get(w, 0) + 1
-    for w in sorted(set(words)):
-        est = cms.estimate(w)
-        print(f"  {w:>8s}: estimated={est}, actual={actual[w]}")
+    main()
